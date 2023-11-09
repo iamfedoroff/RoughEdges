@@ -14,11 +14,33 @@ export rough, rough_plot, rms
 # C.A. Mack, "Analytic form for the power spectral density in one, two, and three
 # dimensions", Journal of Micro/Nanolitography, MEMS, and MOEMS, 10, 040501 (2011)
 # ******************************************************************************************
-psd1D(f, sigma, xi) = sqrt(pi) * sigma^2 * xi * exp(-(pi * f * xi)^2)
+function psd_exp(f, sigma, xi)
+    return 2 * sigma^2 * xi / (1 + (2*pi * f * xi)^2)
+end
 
-psd2D(f, sigma, xi) = pi * sigma^2 * xi^2 * exp(-(pi * f * xi)^2)
+function psd_exp(fx, fy, sigma, xix, xiy)
+    return 2*pi * sigma^2 * xix * xiy /
+           (1 + (2*pi * fx * xix)^2 + (2*pi * fy * xiy)^2)^(3/2)
+end
 
-psd3D(f, sigma, xi) = pi^(3/2) * sigma^2 * xi^3 * exp(-(pi * f * xi)^2)
+function psd_exp(fx, fy, fz, sigma, xix, xiy, xiz)
+    return 8*pi * sigma^2 * xix * xiy * xiz /
+           (1 + (2*pi * fx * xix)^2 + (2*pi * fy * xiy)^2 + (2*pi * fz * xiz)^2)^2
+end
+
+
+function psd_gauss(f, sigma, xi)
+    return sqrt(pi) * sigma^2 * xi * exp(-(pi * f * xi)^2)
+end
+
+function psd_gauss(fx, fy, sigma, xix, xiy)
+    return pi * sigma^2 * xix * xiy * exp(-(pi * fx * xix)^2) * exp(-(pi * fy * xiy)^2)
+end
+
+function psd_gauss(fx, fy, fz, sigma, xix, xiy, xiz)
+    return pi^(3/2) * sigma^2 * xix * xiy * xiz *
+           exp(-(pi * fx * xix)^2) * exp(-(pi * fy * xiy)^2) * exp(-(pi * fz * xiz)^2)
+end
 
 
 # ******************************************************************************************
@@ -27,7 +49,7 @@ psd3D(f, sigma, xi) = pi^(3/2) * sigma^2 * xi^3 * exp(-(pi * f * xi)^2)
 # C.A. Mack, "Generating random rough edges, surfaces, and volumes", Applied Optics, 52,
 # 1472 (2013); https://doi.org/10.1364/AO.52.001472
 # ******************************************************************************************
-function rough(xin; sigma, xi, seed=nothing, psd=psd1D)
+function rough(xin; sigma, xi, seed=nothing, psd=psd_gauss)
     Nxin = length(xin)
     isodd(Nxin) ? x = evenize(xin) : x = xin
 
@@ -46,8 +68,7 @@ function rough(xin; sigma, xi, seed=nothing, psd=psd1D)
 
     F = zeros(ComplexF64, Nx)
     for ix=1:Nx
-        f = fx[ix]
-        PSD = psd(f, sigma, xi)   # power spectral density
+        PSD = psd(fx[ix], sigma, xi)   # power spectral density
         if ix == 1   # highest frequency
             F[ix] = sqrt(Lx * PSD) * randn()
         elseif fx[ix] == 0   # zero frequency
@@ -76,7 +97,7 @@ function rough(xin; sigma, xi, seed=nothing, psd=psd1D)
 end
 
 
-function rough(xin, yin; sigma, xi, seed=nothing, psd=psd2D)
+function rough(xin, yin; sigma, xix, xiy, seed=nothing, psd=psd_gauss)
     Nxin, Nyin = length(xin), length(yin)
     isodd(Nxin) ? x = evenize(xin) : x = xin
     isodd(Nyin) ? y = evenize(yin) : y = yin
@@ -97,8 +118,7 @@ function rough(xin, yin; sigma, xi, seed=nothing, psd=psd2D)
 
     F = zeros(ComplexF64, Nx, Ny)
     for iy=1:Ny, ix=1:Nx
-        f = sqrt(fx[ix]^2 + fy[iy]^2)
-        PSD = psd(f, sigma, xi)   # power spectral density
+        PSD = psd(fx[ix], fy[iy], sigma, xix, xiy)   # power spectral density
         if ix == 1 || iy == 1   # highest frequency
             F[ix,iy] = sqrt(Lx*Ly * PSD) * randn()
         elseif fx[ix] == 0 || fy[iy] == 0   # zero frequency
@@ -128,7 +148,7 @@ function rough(xin, yin; sigma, xi, seed=nothing, psd=psd2D)
 end
 
 
-function rough(xin, yin, zin; sigma, xi, seed=nothing, psd=psd3D)
+function rough(xin, yin, zin; sigma, xix, xiy, xiz, seed=nothing, psd=psd_gauss)
     Nxin, Nyin, Nzin = length(xin), length(yin), length(zin)
     isodd(Nxin) ? x = evenize(xin) : x = xin
     isodd(Nyin) ? y = evenize(yin) : y = yin
@@ -151,8 +171,7 @@ function rough(xin, yin, zin; sigma, xi, seed=nothing, psd=psd3D)
 
     F = zeros(ComplexF64, Nx, Ny, Nz)
     for iz=1:Nz, iy=1:Ny, ix=1:Nx
-        f = sqrt(fx[ix]^2 + fy[iy]^2 + fz[iz]^2)
-        PSD = psd(f, sigma, xi)   # power spectral density
+        PSD = psd(fx[ix], fy[iy], fz[iz], sigma, xix, xiy, xiz)   # power spectral density
         if ix == 1 || iy == 1 || iz == 1   # highest frequency
             F[ix,iy,iz] = sqrt(Lx*Ly*Lz * PSD) * randn()
         elseif fx[ix] == 0 || fy[iy] == 0 || fz[iz] == 0   # zero frequency

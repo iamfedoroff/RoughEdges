@@ -5,17 +5,18 @@ import RoughEdges
 seed = 1   # random numbers seed
 
 sigma = 50e-9   # (m) standard deviation (average height)
-xi = 50e-9   # (m) correlation length
+xix = 50e-9   # (m) correlation length along x
+xiy = 50e-9   # (m) correlation length along y
 
-xmin, xmax, Nx = -5e-6, 5e-6, 1001
-ymin, ymax, Ny = -5e-6, 5e-6, 1001
+xmin, xmax, Nx = -1e-6, 1e-6, 501
+ymin, ymax, Ny = -1e-6, 1e-6, 501
 
 
 # ******************************************************************************************
 x = range(xmin, xmax, Nx)
 y = range(ymin, ymax, Ny)
 
-R = RoughEdges.rough(x, y; sigma, xi, seed)
+R = RoughEdges.rough(x, y; sigma, xix, xiy, seed)
 Ravg = sum(R) / length(R)
 Rrms = RoughEdges.rms(R)
 @show Ravg/1e-9
