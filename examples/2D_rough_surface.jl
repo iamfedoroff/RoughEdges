@@ -8,6 +8,9 @@ sigma = 50e-9   # (m) standard deviation (average height)
 xix = 50e-9   # (m) correlation length along x
 xiy = 50e-9   # (m) correlation length along y
 
+# ac(x, y) = sigma^2 * exp(-abs(x/xix)) * exp(-abs(y/xiy))
+ac(x, y) = sigma^2 * exp(-(x/xix)^2) * exp(-(y/xiy)^2)
+
 xmin, xmax, Nx = -1e-6, 1e-6, 501
 ymin, ymax, Ny = -1e-6, 1e-6, 501
 
@@ -17,6 +20,8 @@ x = range(xmin, xmax, Nx)
 y = range(ymin, ymax, Ny)
 
 R = RoughEdges.rough(x, y; sigma, xix, xiy, seed)
+# R = RoughEdges.rough(x, y; ac=:exp, sigma, xix, xiy, seed)
+# R = RoughEdges.rough(x, y; ac, seed)
 Ravg = sum(R) / length(R)
 Rrms = RoughEdges.rms(R)
 @show Ravg/1e-9

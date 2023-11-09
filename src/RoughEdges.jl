@@ -48,8 +48,14 @@ end
 #
 # C.A. Mack, "Generating random rough edges, surfaces, and volumes", Applied Optics, 52,
 # 1472 (2013); https://doi.org/10.1364/AO.52.001472
+#
+# Spectral grid:
+#       f[1] - highest frequency
+#   f[2:N/2] - negative frequencies
+#   f[N/2+1] - zero frequency
+# f[N/2+2:N] - positive frequencies
 # ******************************************************************************************
-function rough(xin; sigma, xi, seed=nothing, psd=psd_gauss)
+function rough(xin; ac=:gauss, sigma=nothing, xi=nothing, seed=nothing)
     Nxin = length(xin)
     isodd(Nxin) ? x = evenize(xin) : x = xin
 
@@ -57,24 +63,33 @@ function rough(xin; sigma, xi, seed=nothing, psd=psd_gauss)
     dx = x[2]-x[1]
     Lx = x[end]-x[1]
 
-    # Spectral grid:
-    # f[1]   # highest frequency
-    # f[2:N/2]   # negative frequencies
-    # f[N/2+1]   # zero frequency
-    # f[N/2+2:N]   # positive frequencies
     fx = FFTW.ifftshift(FFTW.fftfreq(Nx, 1/dx))
+
+    if ac in (:exp, :gauss)
+        if isnothing(sigma) || isnothing(xi)
+            error("For '$ac' autocorrelation you have to specify 'sigma' and 'xi'")
+        end
+        if ac == :exp
+            psd = psd_exp
+        elseif ac == :gauss
+            psd = psd_gauss
+        end
+        PSD = [psd(fxn, sigma, xi) for fxn=fx]
+    elseif typeof(ac) <: Function
+        PSD = [ac(xn) for xn=x]
+        PSD = FFTW.ifftshift(FFTW.fft(FFTW.fftshift(PSD))) * dx
+    end
 
     isnothing(seed) ? nothing : Random.seed!(seed)
 
     F = zeros(ComplexF64, Nx)
     for ix=1:Nx
-        PSD = psd(fx[ix], sigma, xi)   # power spectral density
         if ix == 1   # highest frequency
-            F[ix] = sqrt(Lx * PSD) * randn()
+            F[ix] = sqrt(Lx * PSD[ix]) * randn()
         elseif fx[ix] == 0   # zero frequency
-            F[ix] = sqrt(Lx * PSD) * randn()
+            F[ix] = sqrt(Lx * PSD[ix]) * randn()
         elseif fx[ix] > 0   # positive frequencies
-            F[ix] = sqrt(Lx * PSD) * (randn() + 1im*randn()) / sqrt(2)
+            F[ix] = sqrt(Lx * PSD[ix]) * (randn() + 1im*randn()) / sqrt(2)
         end
     end
     for ix=2:Nx
@@ -84,20 +99,16 @@ function rough(xin; sigma, xi, seed=nothing, psd=psd_gauss)
     end
 
     R = FFTW.ifftshift(FFTW.ifft(FFTW.fftshift(F))) / dx
-    maxRre = maximum(abs, extrema(real, R))
-    maxRim = maximum(abs, extrema(imag, R))
-    if maxRim > 1e-6*maxRre
-        @warn "max(imag(R)) > 1e-6*max(real(R))"
-        @show maxRre, maxRim
-    end
 
     isodd(Nxin) ? R = R[1:end-1] : nothing
+
+    check_imag(R)
 
     return real.(R)
 end
 
 
-function rough(xin, yin; sigma, xix, xiy, seed=nothing, psd=psd_gauss)
+function rough(xin, yin; ac=:gauss, sigma=nothing, xix=nothing, xiy=nothing, seed=nothing)
     Nxin, Nyin = length(xin), length(yin)
     isodd(Nxin) ? x = evenize(xin) : x = xin
     isodd(Nyin) ? y = evenize(yin) : y = yin
@@ -106,25 +117,34 @@ function rough(xin, yin; sigma, xix, xiy, seed=nothing, psd=psd_gauss)
     dx, dy = x[2]-x[1], y[2]-y[1]
     Lx, Ly = x[end]-x[1], y[end]-y[1]
 
-    # Spectral grid:
-    # f[1]   # highest frequency
-    # f[2:N/2]   # negative frequencies
-    # f[N/2+1]   # zero frequency
-    # f[N/2+2:N]   # positive frequencies
     fx = FFTW.ifftshift(FFTW.fftfreq(Nx, 1/dx))
     fy = FFTW.ifftshift(FFTW.fftfreq(Ny, 1/dy))
+
+    if ac in (:exp, :gauss)
+        if isnothing(sigma) || isnothing(xix) || isnothing(xiy)
+            error("For '$ac' autocorrelation you have to specify 'sigma', 'xix' and 'xiy'")
+        end
+        if ac == :exp
+            psd = psd_exp
+        elseif ac == :gauss
+            psd = psd_gauss
+        end
+        PSD = [psd(fxn, fyn, sigma, xix, xiy) for fxn=fx, fyn=fy]
+    elseif typeof(ac) <: Function
+        PSD = [ac(xn, yn) for xn=x, yn=y]
+        PSD = FFTW.ifftshift(FFTW.fft(FFTW.fftshift(PSD))) * dx*dy
+    end
 
     isnothing(seed) ? nothing : Random.seed!(seed)
 
     F = zeros(ComplexF64, Nx, Ny)
     for iy=1:Ny, ix=1:Nx
-        PSD = psd(fx[ix], fy[iy], sigma, xix, xiy)   # power spectral density
         if ix == 1 || iy == 1   # highest frequency
-            F[ix,iy] = sqrt(Lx*Ly * PSD) * randn()
+            F[ix,iy] = sqrt(Lx*Ly * PSD[ix,iy]) * randn()
         elseif fx[ix] == 0 || fy[iy] == 0   # zero frequency
-            F[ix,iy] = sqrt(Lx*Ly * PSD) * randn()
+            F[ix,iy] = sqrt(Lx*Ly * PSD[ix,iy]) * randn()
         elseif fx[ix] > 0 || fy[iy] > 0   # positive frequencies
-            F[ix,iy] = sqrt(Lx*Ly * PSD) * (randn() + 1im*randn()) / sqrt(2)
+            F[ix,iy] = sqrt(Lx*Ly * PSD[ix,iy]) * (randn() + 1im*randn()) / sqrt(2)
         end
     end
     for iy=2:Ny, ix=2:Nx
@@ -134,21 +154,20 @@ function rough(xin, yin; sigma, xix, xiy, seed=nothing, psd=psd_gauss)
     end
 
     R = FFTW.ifftshift(FFTW.ifft(FFTW.fftshift(F))) / (dx*dy)
-    maxRre = maximum(abs, extrema(real, R))
-    maxRim = maximum(abs, extrema(imag, R))
-    if maxRim > 1e-6*maxRre
-        @warn "max(imag(R)) > 1e-6*max(real(R))"
-        @show maxRre, maxRim
-    end
 
     isodd(Nxin) ? R = R[1:end-1,:] : nothing
     isodd(Nyin) ? R = R[:,1:end-1] : nothing
+
+    check_imag(R)
 
     return real.(R)
 end
 
 
-function rough(xin, yin, zin; sigma, xix, xiy, xiz, seed=nothing, psd=psd_gauss)
+function rough(
+    xin, yin, zin;
+    ac=:gauss, sigma=nothing, xix=nothing, xiy=nothing, xiz=nothing, seed=nothing,
+)
     Nxin, Nyin, Nzin = length(xin), length(yin), length(zin)
     isodd(Nxin) ? x = evenize(xin) : x = xin
     isodd(Nyin) ? y = evenize(yin) : y = yin
@@ -158,26 +177,35 @@ function rough(xin, yin, zin; sigma, xix, xiy, xiz, seed=nothing, psd=psd_gauss)
     dx, dy, dz = x[2]-x[1], y[2]-y[1], z[2]-z[1]
     Lx, Ly, Lz = x[end]-x[1], y[end]-y[1], z[end]-z[1]
 
-    # Spectral grid:
-    # f[1]   # highest frequency
-    # f[2:N/2]   # negative frequencies
-    # f[N/2+1]   # zero frequency
-    # f[N/2+2:N]   # positive frequencies
     fx = FFTW.ifftshift(FFTW.fftfreq(Nx, 1/dx))
     fy = FFTW.ifftshift(FFTW.fftfreq(Ny, 1/dy))
     fz = FFTW.ifftshift(FFTW.fftfreq(Nz, 1/dz))
+
+    if ac in (:exp, :gauss)
+        if isnothing(sigma) || isnothing(xix) || isnothing(xiy) || isnothing(xiz)
+            error("For '$ac' autocorrelation you have to specify 'sigma', 'xix', 'xiy' and 'xiz'")
+        end
+        if ac == :exp
+            psd = psd_exp
+        elseif ac == :gauss
+            psd = psd_gauss
+        end
+        PSD = [psd(fxn, fyn, fzn, sigma, xix, xiy, xiz) for fxn=fx, fyn=fy, fzn=fz]
+    elseif typeof(ac) <: Function
+        PSD = [ac(xn, yn, zn) for xn=x, yn=y, zn=z]
+        PSD = FFTW.ifftshift(FFTW.fft(FFTW.fftshift(PSD))) * (dx*dy*dz)
+    end
 
     isnothing(seed) ? nothing : Random.seed!(seed)
 
     F = zeros(ComplexF64, Nx, Ny, Nz)
     for iz=1:Nz, iy=1:Ny, ix=1:Nx
-        PSD = psd(fx[ix], fy[iy], fz[iz], sigma, xix, xiy, xiz)   # power spectral density
         if ix == 1 || iy == 1 || iz == 1   # highest frequency
-            F[ix,iy,iz] = sqrt(Lx*Ly*Lz * PSD) * randn()
+            F[ix,iy,iz] = sqrt(Lx*Ly*Lz * PSD[ix,iy,iz]) * randn()
         elseif fx[ix] == 0 || fy[iy] == 0 || fz[iz] == 0   # zero frequency
-            F[ix,iy,iz] = sqrt(Lx*Ly*Lz * PSD) * randn()
+            F[ix,iy,iz] = sqrt(Lx*Ly*Lz * PSD[ix,iy,iz]) * randn()
         elseif fx[ix] > 0 || fy[iy] > 0 || fz[iz] > 0   # positive frequencies
-            F[ix,iy,iz] = sqrt(Lx*Ly*Lz * PSD) * (randn() + 1im*randn()) / sqrt(2)
+            F[ix,iy,iz] = sqrt(Lx*Ly*Lz * PSD[ix,iy,iz]) * (randn() + 1im*randn()) / sqrt(2)
         end
     end
     for iz=2:Nz, iy=2:Ny, ix=2:Nx
@@ -187,16 +215,12 @@ function rough(xin, yin, zin; sigma, xix, xiy, xiz, seed=nothing, psd=psd_gauss)
     end
 
     R = FFTW.ifftshift(FFTW.ifft(FFTW.fftshift(F))) / (dx*dy*dz)
-    maxRre = maximum(abs, extrema(real, R))
-    maxRim = maximum(abs, extrema(imag, R))
-    if maxRim > 1e-6*maxRre
-        @warn "max(imag(R)) > 1e-6*max(real(R))"
-        @show maxRre, maxRim
-    end
 
     isodd(Nxin) ? R = R[1:end-1,:,:] : nothing
     isodd(Nyin) ? R = R[:,1:end-1,:] : nothing
     isodd(Nzin) ? R = R[:,:,1:end-1] : nothing
+
+    check_imag(R)
 
     return real.(R)
 end
@@ -366,6 +390,20 @@ function rms(x)
         tmp += (x[i] - xavg)^2
     end
     return sqrt(tmp / length(x))
+end
+
+
+"""
+Checks that the imaginary part of R is less that its real part by at least lvl times
+"""
+function check_imag(R; lvl=1e-3)
+    maxRre = maximum(abs, extrema(real, R))
+    maxRim = maximum(abs, extrema(imag, R))
+    if maxRim > lvl * maxRre
+        @warn "Imaginary part of R is too big \n" *
+              "maximum(real,R)=$maxRre, maximum(imag,R)=$maxRim"
+    end
+    return nothing
 end
 
 
