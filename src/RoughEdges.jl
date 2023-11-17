@@ -2,10 +2,11 @@ module RoughEdges
 
 import FFTW
 import GLMakie as mak
+import Images
 import KernelAbstractions: @index, @kernel, get_backend
 import Random
 
-export rough, rough_plot, rms
+export rough, rough_plot, mean, rms
 
 
 # ******************************************************************************************
@@ -227,6 +228,120 @@ end
 
 
 # ******************************************************************************************
+"""
+    rough(fname; fov, sigma)
+
+Reads external image file and turns it to the map of heights
+
+# Arguments
+- `fname::String`: input file name
+
+# Keywords
+- `fov::Tuple`: field of view, i.e. width and height of the image in SI units
+- `sigma::Real`: the hight, in SI units, corresponding to the largest image value
+"""
+function rough(fname::String; fov, sigma)
+    img = Images.load(fname)
+    Nx, Ny = size(img)
+    @show eltype(img)
+    if eltype(img) <: Union{Images.ColorTypes.RGB, Images.ColorTypes.RGBA}
+        R = [Float64(img[i,j].r) for i=1:Nx, j=1:Ny]
+    elseif eltype(img) <: Images.ColorTypes.Gray
+        R = [Float64(img[i,j]) for i=1:Nx, j=1:Ny]
+    else
+        error("Unknown file type")
+    end
+
+    # Properly orient:
+    R = transpose(R)
+    R = reverse(R; dims=2)
+
+    # Normalize to a given height:
+    R .= R ./ maximum(R)
+    @. R = R * sigma
+
+    # Create grid:
+    Nx, Ny = size(R)
+    Lx, Ly = fov
+    x = range(-Lx/2, Lx/2, Nx)
+    y = range(-Ly/2, Ly/2, Ny)
+
+    return x, y, R
+end
+
+
+"""
+    rough(fname; fov, sigma, mavg=1)
+
+Reads external image file from the scanning electron microscope (SEM) and turns it to the
+map of heights
+
+# Arguments
+- `fname::String`: input file name
+
+# Keywords
+- `fov::Tuple`: field of view, i.e. width and height of the image in SI units
+- `sigma::Real`: root-mean-square deviation of surface roughness
+- `mavg::Int=1`: number of neighbours for smoothing by moving average
+"""
+function rough_sem(fname::String; fov, sigma, mavg=1)
+    x, y, R = rough(fname; fov, sigma=1)
+
+    # Cut the label:
+    Nx, Ny = size(R)
+    ix1, ix2 = 1, Nx
+    iy1, iy2 = 1, Ny
+
+    for i=div(Nx,2):-1:1
+        if @views allequal(R[i,:])
+            ix1 = i + 1
+            break
+        end
+    end
+    for i=div(Nx,2):Nx
+        if @views allequal(R[i,:])
+            ix2 = i - 1
+            break
+        end
+    end
+
+    for i=div(Ny,2):-1:1
+        if @views allequal(R[:,i])
+            iy1 = i + 1
+            break
+        end
+    end
+    for i=div(Ny,2):Ny
+        if @views allequal(R[:,i])
+            iy2 = i - 1
+            break
+        end
+    end
+
+    R = R[ix1:ix2,iy1:iy2]
+
+    # Smooth:
+    if mavg > 1
+        R = moving_average(R, mavg)
+    end
+
+    # Convert to hights with a given root-mean-square deviation sigma:
+    R .= R .- minimum(R)
+    R .= R ./ maximum(R)
+    R .= R .- mean(R)
+    @. R = 4 * R * sigma
+
+    # Create grid:
+    Nx, Ny = size(R)
+    Lx, Ly = fov
+    x = range(-Lx/2, Lx/2, Nx)
+    y = range(-Ly/2, Ly/2, Ny)
+
+    return x, y, R
+end
+
+
+# ******************************************************************************************
 # Visualize rough edges, surfaces, and volumes
 # ******************************************************************************************
 function rough_plot(x, R; xu=1, Ru=1, new_window=false)
@@ -263,8 +378,10 @@ function rough_plot(
     ax21 = mak.Axis(fig[2,1]; xlabel="x", ylabel="y")
     ax22 = mak.Axis(fig[2,2])
 
+    mak.xlims!(ax11, (x1,x2))
     mak.ylims!(ax11, colorrange...)
-    mak.ylims!(ax22, colorrange...)
+    mak.xlims!(ax22, colorrange...)
+    mak.ylims!(ax22, (y1,y2))
 
     mak.linkxaxes!(ax11, ax21)
     mak.linkyaxes!(ax22, ax21)
@@ -277,12 +394,11 @@ function rough_plot(
     mak.lines!(ax11, x/xu, real.(Rx))
 
     hm = mak.heatmap!(ax21, x/xu, y/yu, real.(R)/Ru; colormap, colorrange)
-    mak.lines!(ax21, [x1,x2], [0,0]; color=:black, linewidth=0.5)
-    mak.lines!(ax21, [0,0], [y1,y2]; color=:black, linewidth=0.5)
+    mak.lines!(ax21, [x1,x2], [0,0]; color=:black, linewidth=1)
+    mak.lines!(ax21, [0,0], [y1,y2]; color=:black, linewidth=1)
     mak.Colorbar(fig[3,1], hm; vertical=false, flipaxis=false)
 
     mak.lines!(ax22, real.(Ry), y/yu)
-    mak.ylims!(ax22, (x1,x2))
 
     if new_window
         mak.display(mak.Screen(), fig)
@@ -381,6 +497,14 @@ end
 
 
 """
+Calculates mean value
+"""
+function mean(x)
+    return sum(x) / length(x)
+end
+
+
+"""
 Calculates root-mean-square deviation
 """
 function rms(x)
@@ -409,7 +533,7 @@ end
 
 """
 Prepares geomtry mask for a given grid (x,y,z) according to the heights distribution R and
-logical function gfunc.
+logical function gfunc
 
     Example:
     gfunc(x,y,z,R) = (z - 1e-6) >= R   # rough  surface located at z=1um
@@ -426,6 +550,32 @@ function geometry_mask(x, y, z, R; gfunc)
     ndrange = size(gmask)
     geometry_mask_kernel!(backend)(gmask, x, y, z, R, gfunc; ndrange)
     return Array{Int}(collect(gmask))
+end
+
+
+"""
+Smooths array A using moving average with m neghbors
+
+https://julialang.org/blog/2016/02/iteration/#a_multidimensional_boxcar_filter
+"""
+function moving_average(A::AbstractArray, m::Int)
+    if eltype(A) == Int
+        out = zeros(size(A))
+    else
+        out = similar(A)
+    end
+    R = CartesianIndices(A)
+    Ifirst, Ilast = first(R), last(R)
+    I1 = div(m,2) * oneunit(Ifirst)
+    for I in R
+        n, s = 0, zero(eltype(out))
+        for J in max(Ifirst, I-I1):min(Ilast, I+I1)
+            s += A[J]
+            n += 1
+        end
+        out[I] = s/n
+    end
+    return out
 end
 
 
