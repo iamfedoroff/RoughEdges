@@ -6,7 +6,7 @@ import Images
 import KernelAbstractions: @index, @kernel, get_backend
 import Random
 
-export rough, rough_plot, mean, rms
+export rough, rough_plot, geometry_mask
 
 
 # ******************************************************************************************
@@ -227,38 +227,49 @@ function rough(
 end
 
 
-# ******************************************************************************************
+# ------------------------------------------------------------------------------------------
 """
     rough(fname; fov, sigma)
 
-Reads external image file and turns it to the map of heights
+Reads external image file and turns it to the map of heights (brighter is higher)
 
 # Arguments
 - `fname::String`: input file name
 
 # Keywords
-- `fov::Tuple`: field of view, i.e. width and height of the image in SI units
-- `sigma::Real`: the hight, in SI units, corresponding to the largest image value
+- `fov::Tuple`: field of view, i.e. tuple with the image width and height in SI units
+- `height::Real`: the hight (from absolute minimum to absolute maximum) in SI units
 """
-function rough(fname::String; fov, sigma)
+function rough(
+    fname::String;
+    fov, height, lmargin=0, rmargin=0, bmargin=0, tmargin=0, mavg=1, zero_mean=false,
+)
     img = Images.load(fname)
-    Nx, Ny = size(img)
-    @show eltype(img)
-    if eltype(img) <: Union{Images.ColorTypes.RGB, Images.ColorTypes.RGBA}
-        R = [Float64(img[i,j].r) for i=1:Nx, j=1:Ny]
-    elseif eltype(img) <: Images.ColorTypes.Gray
-        R = [Float64(img[i,j]) for i=1:Nx, j=1:Ny]
-    else
-        error("Unknown file type")
-    end
+    R = @. color2float(img)
 
     # Properly orient:
     R = transpose(R)
     R = reverse(R; dims=2)
 
+    # Cut margins:
+    Nx, Ny = size(R)
+    @assert lmargin + rmargin < Nx
+    @assert bmargin + tmargin < Ny
+    R = R[begin+lmargin:end-rmargin,begin+bmargin:end-tmargin]
+
+    # Smooth:
+    if mavg > 1
+        R = moving_average(R, mavg)
+    end
+
     # Normalize to a given height:
+    R .= R .- minimum(R)
     R .= R ./ maximum(R)
-    @. R = R * sigma
+    @. R = R * height
+
+    if zero_mean
+        R .= R .- sum(R)/length(R)
+    end
 
     # Create grid:
     Nx, Ny = size(R)
@@ -270,74 +281,51 @@ function rough(fname::String; fov, sigma)
 end
 
 
+# ******************************************************************************************
+function geometry_mask(x, z, R::Function; zdirection=1, zshift=0)
+    R = [R(xi) for xi=x]
+    return geometry_mask(x, z, R; zdirection, zshift)
+end
+
 """
-    rough(fname; fov, sigma, mavg=1)
-
-Reads external image file from the scanning electron microscope (SEM) and turns it to the
-map of heights
-
-# Arguments
-- `fname::String`: input file name
-
-# Keywords
-- `fov::Tuple`: field of view, i.e. width and height of the image in SI units
-- `sigma::Real`: root-mean-square deviation of surface roughness
-- `mavg::Int=1`: number of neighbours for smoothing by moving average
+Generates the 2D geomtry mask for a given surface roughness R(x)
 """
-function rough_sem(fname::String; fov, sigma, mavg=1)
-    x, y, R = rough(fname; fov, sigma=1)
-
-    # Cut the label:
-    Nx, Ny = size(R)
-    ix1, ix2 = 1, Nx
-    iy1, iy2 = 1, Ny
-
-    for i=div(Nx,2):-1:1
-        if @views allequal(R[i,:])
-            ix1 = i + 1
-            break
-        end
+function geometry_mask(x, z, R; zdirection=1, zshift=0)
+    if zdirection == 1
+        gfunc = (x,z,R) -> z <= R + zshift
+    elseif zdirection == -1
+        gfunc = (x,z,R) -> z >= -R + zshift
     end
-    for i=div(Nx,2):Nx
-        if @views allequal(R[i,:])
-            ix2 = i - 1
-            break
-        end
-    end
+    return [gfunc(x[i], zi, R[i]) for i in eachindex(x), zi=z]
+end
 
-    for i=div(Ny,2):-1:1
-        if @views allequal(R[:,i])
-            iy1 = i + 1
-            break
-        end
-    end
-    for i=div(Ny,2):Ny
-        if @views allequal(R[:,i])
-            iy2 = i - 1
-            break
+
+function geometry_mask(x, y, z, R::Function; zdirection=1, zshift=0)
+    R = [R(xi, yi) for xi=x, yi=y]
+    return geometry_mask(x, y, z, R; zdirection, zshift)
+end
+
+"""
+Generates the 3D geomtry mask for a given surface roughness R(x,y)
+"""
+function geometry_mask(x, y, z, R; zdirection=1, zshift=0)
+    @kernel function geometry_mask_kernel!(gmask, x, y, z, R, gfunc)
+        ix, iy, iz = @index(Global, NTuple)
+        @inbounds begin
+            gmask[ix,iy,iz] = gfunc(x[ix], y[iy], z[iz], R[ix,iy])
         end
     end
 
-    R = R[ix1:ix2,iy1:iy2]
-
-    # Smooth:
-    if mavg > 1
-        R = moving_average(R, mavg)
+    if zdirection == 1
+        gfunc = (x,y,z,R) -> z <= R + zshift
+    elseif zdirection == -1
+        gfunc = (x,y,z,R) -> z >= -R + zshift
     end
-
-    # Convert to hights with a given root-mean-square deviation sigma:
-    R .= R .- minimum(R)
-    R .= R ./ maximum(R)
-    R .= R .- mean(R)
-    @. R = 4 * R * sigma
-
-    # Create grid:
-    Nx, Ny = size(R)
-    Lx, Ly = fov
-    x = range(-Lx/2, Lx/2, Nx)
-    y = range(-Ly/2, Ly/2, Ny)
-
-    return x, y, R
+    gmask = similar(R, length(x), length(y), length(z))
+    backend = get_backend(gmask)
+    ndrange = size(gmask)
+    geometry_mask_kernel!(backend)(gmask, x, y, z, R, gfunc; ndrange)
+    return Array{Int}(collect(gmask))
 end
 
 
@@ -486,6 +474,11 @@ end
 # ******************************************************************************************
 # Utilities
 # ******************************************************************************************
+color2float(color) = Float64(color)
+color2float(color::Images.ColorTypes.RGB) = Float64(color.r)
+color2float(color::Images.ColorTypes.RGBA) = Float64(color.r)
+
+
 """
 Extends x by one step to make length(x) be even
 """
@@ -493,27 +486,6 @@ function evenize(x)
     Nx = length(x)
     dx = x[2] - x[1]
     return range(x[begin], x[end]+dx, Nx+1)
-end
-
-
-"""
-Calculates mean value
-"""
-function mean(x)
-    return sum(x) / length(x)
-end
-
-
-"""
-Calculates root-mean-square deviation
-"""
-function rms(x)
-    xavg = sum(x) / length(x)
-    tmp = zero(eltype(x))
-    for i in eachindex(x)
-        tmp += (x[i] - xavg)^2
-    end
-    return sqrt(tmp / length(x))
 end
 
 
@@ -528,28 +500,6 @@ function check_imag(R; lvl=1e-3)
               "maximum(real,R)=$maxRre, maximum(imag,R)=$maxRim"
     end
     return nothing
-end
-
-
-"""
-Prepares geomtry mask for a given grid (x,y,z) according to the heights distribution R and
-logical function gfunc
-
-    Example:
-    gfunc(x,y,z,R) = (z - 1e-6) >= R   # rough  surface located at z=1um
-"""
-@kernel function geometry_mask_kernel!(gmask, x, y, z, R, gfunc)
-    ix, iy, iz = @index(Global, NTuple)
-    @inbounds begin
-        gmask[ix,iy,iz] = gfunc(x[ix], y[iy], z[iz], R[ix,iy])
-    end
-end
-function geometry_mask(x, y, z, R; gfunc)
-    gmask = similar(R, length(x), length(y), length(z))
-    backend = get_backend(gmask)
-    ndrange = size(gmask)
-    geometry_mask_kernel!(backend)(gmask, x, y, z, R, gfunc; ndrange)
-    return Array{Int}(collect(gmask))
 end
 
 
