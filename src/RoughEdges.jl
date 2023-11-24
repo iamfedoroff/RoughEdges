@@ -361,7 +361,7 @@ function rough_plot(
     Rx = R[:,div(Ny,2)] / Ru
     Ry = R[div(Nx,2),:] / Ru
 
-    fig = mak.Figure(resolution=(950,992), fontsize=14)
+    fig = mak.Figure(size=(950,992))
     ax11 = mak.Axis(fig[1,1])
     ax21 = mak.Axis(fig[2,1]; xlabel="x", ylabel="y")
     ax22 = mak.Axis(fig[2,2])
@@ -412,7 +412,7 @@ function rough_plot(
 
     ix, iy, iz = div(Nx,2), div(Ny,2), div(Nz,2)
 
-    fig = mak.Figure(resolution=(950,992), fontsize=14)
+    fig = mak.Figure(size=(950,992))
     ax = mak.Axis3(fig[1,1]; xlabel="x", ylabel="y", zlabel="z", aspect, perspectiveness=0)
 
     if algorithm == :volumeslices
