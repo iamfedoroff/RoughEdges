@@ -3,6 +3,7 @@ module RoughEdges
 import FFTW
 import GLMakie as mak
 import Images
+import Interpolations: linear_interpolation
 import KernelAbstractions: @index, @kernel, get_backend
 import Random
 
@@ -278,6 +279,18 @@ function rough(
     y = range(-Ly/2, Ly/2, Ny)
 
     return x, y, R
+end
+
+
+function rough(
+    x, y, fname::String;
+    fov, height, lmargin=0, rmargin=0, bmargin=0, tmargin=0, mavg=1, zero_mean=false,
+)
+    xex, yex, Rex = rough(
+        fname; fov, height, lmargin, rmargin, bmargin, tmargin, mavg, zero_mean,
+    )
+    itp = linear_interpolation((xex,yex), Rex)
+    return [itp(xi, yi) for xi=x, yi=y]
 end
 
 
