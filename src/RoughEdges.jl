@@ -346,7 +346,7 @@ end
 # Visualize rough edges, surfaces, and volumes
 # ******************************************************************************************
 function rough_plot(x, R; xu=1, Ru=1, new_window=false)
-    fig = mak.Figure()
+    fig = mak.Figure(size=(800,600))
     ax = mak.Axis(fig[1,1]; xlabel="x", ylabel="R")
     mak.lines!(ax, x/xu, R/Ru)
     if new_window
