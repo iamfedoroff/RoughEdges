@@ -29,4 +29,14 @@ R = rough(x, y; sigma, xix, xiy, seed)
 
 
 # ******************************************************************************************
-rough_plot(x, y, R; colorrange=(-4*sigma,4*sigma))
+z = range(-5, 5, 251)
+
+gmask = geometry_mask(x, y, z, R)
+
+
+# ******************************************************************************************
+# using MaxwellPlots
+
+# rough_plot(x, y, R; colorrange=(-4*sigma,4*sigma))
+
+# plot_geometry(x, y, z, gmask)

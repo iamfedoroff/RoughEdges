@@ -32,4 +32,6 @@ R = rough(x, y, z; sigma, xix, xiy, xiz, seed)
 
 
 # ******************************************************************************************
-rough_plot(x, y, z, R; colorrange=(-4*sigma,4*sigma))
+# using MaxwellPlots
+
+# rough_plot(x, y, z, R; colorrange=(-4*sigma,4*sigma))
