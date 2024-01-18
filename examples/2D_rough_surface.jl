@@ -20,8 +20,8 @@ ymin, ymax, Ny = -10, 10, 501
 x = range(xmin, xmax, Nx)
 y = range(ymin, ymax, Ny)
 
-R = rough(x, y; sigma, xix, xiy, seed)
-# R = rough(x, y; ac=:exp, sigma, xix, xiy, seed)
+R = rough(x, y; sigma, xi=(xix,xiy), seed)
+# R = rough(x, y; ac=:exp, sigma, xi=(xix,xiy), seed)
 # R = rough(x, y; ac, seed)
 
 @show mean(R)

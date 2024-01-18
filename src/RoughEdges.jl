@@ -109,7 +109,7 @@ function rough(xin; ac=:gauss, sigma=nothing, xi=nothing, seed=nothing)
 end
 
 
-function rough(xin, yin; ac=:gauss, sigma=nothing, xix=nothing, xiy=nothing, seed=nothing)
+function rough(xin, yin; ac=:gauss, sigma=nothing, xi=nothing, seed=nothing)
     Nxin, Nyin = length(xin), length(yin)
     isodd(Nxin) ? x = evenize(xin) : x = xin
     isodd(Nyin) ? y = evenize(yin) : y = yin
@@ -122,13 +122,18 @@ function rough(xin, yin; ac=:gauss, sigma=nothing, xix=nothing, xiy=nothing, see
     fy = FFTW.ifftshift(FFTW.fftfreq(Ny, 1/dy))
 
     if ac in (:exp, :gauss)
-        if isnothing(sigma) || isnothing(xix) || isnothing(xiy)
-            error("For '$ac' autocorrelation you have to specify 'sigma', 'xix' and 'xiy'")
+        if isnothing(sigma) || isnothing(xi)
+            error("For '$ac' autocorrelation you have to specify 'sigma' and 'xi'")
         end
         if ac == :exp
             psd = psd_exp
         elseif ac == :gauss
             psd = psd_gauss
+        end
+        if typeof(xi) <: Real
+            xix = xiy = xi
+        else
+            xix, xiy = xi
         end
         PSD = [psd(fxn, fyn, sigma, xix, xiy) for fxn=fx, fyn=fy]
     elseif typeof(ac) <: Function
@@ -165,10 +170,7 @@ function rough(xin, yin; ac=:gauss, sigma=nothing, xix=nothing, xiy=nothing, see
 end
 
 
-function rough(
-    xin, yin, zin;
-    ac=:gauss, sigma=nothing, xix=nothing, xiy=nothing, xiz=nothing, seed=nothing,
-)
+function rough(xin, yin, zin; ac=:gauss, sigma=nothing, xi=nothing, seed=nothing)
     Nxin, Nyin, Nzin = length(xin), length(yin), length(zin)
     isodd(Nxin) ? x = evenize(xin) : x = xin
     isodd(Nyin) ? y = evenize(yin) : y = yin
@@ -183,13 +185,18 @@ function rough(
     fz = FFTW.ifftshift(FFTW.fftfreq(Nz, 1/dz))
 
     if ac in (:exp, :gauss)
-        if isnothing(sigma) || isnothing(xix) || isnothing(xiy) || isnothing(xiz)
-            error("For '$ac' autocorrelation you have to specify 'sigma', 'xix', 'xiy' and 'xiz'")
+        if isnothing(sigma) || isnothing(xi)
+            error("For '$ac' autocorrelation you have to specify 'sigma' and 'xi'")
         end
         if ac == :exp
             psd = psd_exp
         elseif ac == :gauss
             psd = psd_gauss
+        end
+        if typeof(xi) <: Real
+            xix = xiy = xiz = xi
+        else
+            xix, xiy, xiz = xi
         end
         PSD = [psd(fxn, fyn, fzn, sigma, xix, xiy, xiz) for fxn=fx, fyn=fy, fzn=fz]
     elseif typeof(ac) <: Function

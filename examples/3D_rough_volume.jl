@@ -23,8 +23,8 @@ x = range(xmin, xmax, Nx)
 y = range(ymin, ymax, Ny)
 z = range(zmin, zmax, Nz)
 
-R = rough(x, y, z; sigma, xix, xiy, xiz, seed)
-# R = rough(x, y, z; ac=:exp, sigma, xix, xiy, xiz, seed)
+R = rough(x, y, z; sigma, xi=(xix,xiy,xiz), seed)
+# R = rough(x, y, z; ac=:exp, sigma, xi=(xix,xiy,xiz), seed)
 # R = rough(x, y, z; ac, seed)
 
 @show mean(R)
