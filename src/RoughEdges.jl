@@ -6,7 +6,7 @@ import Interpolations: linear_interpolation
 import KernelAbstractions: @index, @kernel, get_backend
 import Random
 
-export rough, geometry_mask
+export rough, geometry_mask, correlation_function
 
 
 # ******************************************************************************************
@@ -403,6 +403,22 @@ function moving_average(A::AbstractArray, m::Int)
         out[I] = s/n
     end
     return out
+end
+
+
+"""
+Calculates correlation function, defined as
+    C(X,Y) = <R(x,y) * R(x+X,y+Y)> / std(R),
+using FFT:
+    C(X,Y) = IFFT(FFT(R) * conj(FFT(R)))
+"""
+function correlation_function(R)
+    Nx, Ny = size(R)
+    C = FFTW.ifftshift(FFTW.ifft(FFTW.fft(R) .* conj.(FFTW.fft(R))))
+    C = @. real(C) / Nx / Ny
+    C = isodd(Nx) ? circshift(C, (-1,0)) : C
+    C = isodd(Ny) ? circshift(C, (0,-1)) : C
+    return C
 end
 
 
