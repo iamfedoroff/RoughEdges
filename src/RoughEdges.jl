@@ -5,6 +5,7 @@ import Images
 import Interpolations: linear_interpolation
 import KernelAbstractions: @index, @kernel, get_backend
 import Random
+import TiffImages
 
 export rough, geometry_mask, correlation_function
 
@@ -351,9 +352,10 @@ end
 # ******************************************************************************************
 # Utilities
 # ******************************************************************************************
-color2float(color) = Float64(color)
-color2float(color::Images.ColorTypes.RGB) = Float64(color.r)
-color2float(color::Images.ColorTypes.RGBA) = Float64(color.r)
+color2float(x) = Float64(x)
+color2float(x::Images.ColorTypes.RGB) = Float64(x.r)
+color2float(x::Images.ColorTypes.RGBA) = Float64(x.r)
+color2float(x::TiffImages.WidePixel) = Float64(x.color.r)
 
 
 """
